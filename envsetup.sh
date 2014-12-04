@@ -1658,6 +1658,27 @@ function godir () {
     \cd $T/$pathname
 }
 
+function liquidremote()
+{
+    git remote rm liquid 2> /dev/null
+    PFX=""
+    if [ ! -d .git ]
+     then
+        echo .git directory not found. Please run this from the root directory of the Android repository you wish to set up.
+    else
+    PROJ=`pwd -P | sed s#$ANDROID_BUILD_TOP/##g`
+
+    if (echo $PROJ | egrep -q 'external|system|build|bionic|art|libcore|prebuilt|dalvik') ; then
+        PFX="android_"
+     fi
+
+    PROJECT="$(echo $PROJ | sed 's/\//_/g')"
+
+    git remote add liquid git@github.com:LiquidSmooth/$PFX$PROJECT
+    echo "Remote 'liquid' created"
+     fi
+}
+
 function cmremote()
 {
     git remote rm cmremote 2> /dev/null
@@ -1750,7 +1771,7 @@ function installboot()
         adb shell chmod 644 /system/lib/modules/*
         echo "Installation complete."
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $LIQUID_BUILD, run away!"
     fi
 }
 
@@ -1784,13 +1805,13 @@ function installrecovery()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 >> /dev/null
     adb wait-for-online remount
-    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
+    if (adb shell getprop ro.liquid.device | grep -q "$LIQUID_BUILD");
     then
         adb push $OUT/recovery.img /cache/
         adb shell dd if=/cache/recovery.img of=$PARTITION
         echo "Installation complete."
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $LIQUID_BUILD, run away!"
     fi
 }
 
@@ -2244,7 +2265,7 @@ function repopick() {
 function fixup_common_out_dir() {
     common_out_dir=$(get_build_var OUT_DIR)/target/common
     target_device=$(get_build_var TARGET_DEVICE)
-    if [ ! -z $CM_FIXUP_COMMON_OUT ]; then
+    if [ ! -z $LIQUID_FIXUP_COMMON_OUT ]; then
         if [ -d ${common_out_dir} ] && [ ! -L ${common_out_dir} ]; then
             mv ${common_out_dir} ${common_out_dir}-${target_device}
             ln -s ${common_out_dir}-${target_device} ${common_out_dir}
@@ -2349,7 +2370,30 @@ function mk_timer()
 
 function make()
 {
-    mk_timer $(get_make_command) "$@"
+    local start_time=$(date +"%s")
+    $(get_make_command) "$@"
+    local ret=$?
+    local end_time=$(date +"%s")
+    local tdiff=$(($end_time-$start_time))
+    local hours=$(($tdiff / 3600 ))
+    local mins=$((($tdiff % 3600) / 60))
+    local secs=$(($tdiff % 60))
+    echo
+    if [ $ret -eq 0 ] ; then
+        echo -n -e "#### make completed successfully "
+    else
+        echo -n -e "#### make failed to build some targets "
+    fi
+    if [ $hours -gt 0 ] ; then
+        printf "(%02g:%02g:%02g (hh:mm:ss))" $hours $mins $secs
+    elif [ $mins -gt 0 ] ; then
+        printf "(%02g:%02g (mm:ss))" $mins $secs
+    elif [ $secs -gt 0 ] ; then
+        printf "(%s seconds)" $secs
+    fi
+    echo -e " ####"
+    echo
+    return $ret
 }
 
 if [ "x$SHELL" != "x/bin/bash" ]; then
