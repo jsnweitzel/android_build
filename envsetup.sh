@@ -26,6 +26,7 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - cmrebase: Rebase a Gerrit change and push it again
 - aospremote: Add git remote for matching AOSP repository
 - cafremote: Add git remote for matching CodeAurora repository.
+- liquidremote: Add a git remote for matching LIQUID repository.
 - mka:      Builds using SCHED_BATCH on all processors
 - mkap:     Builds the module(s) using mka and pushes them to the device.
 - cmka:     Cleans and builds using mka.
@@ -82,12 +83,12 @@ function check_product()
     fi
 
     if (echo -n $1 | grep -q -e "^cm_") ; then
-       CM_BUILD=$(echo -n $1 | sed -e 's/^cm_//g')
-       export BUILD_NUMBER=$((date +%s%N ; echo $CM_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
+       LIQUID_BUILD=$(echo -n $1 | sed -e 's/^cm_//g')
+       export BUILD_NUMBER=$((date +%s%N ; echo $LIQUID_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
     else
-       CM_BUILD=
+       LIQUID_BUILD=
     fi
-    export CM_BUILD
+    export LIQUID_BUILD
 
         TARGET_PRODUCT=$1 \
         TARGET_BUILD_VARIANT= \
@@ -492,12 +493,12 @@ function add_lunch_combo()
 }
 
 # add the default one here
-add_lunch_combo aosp_arm-eng
-add_lunch_combo aosp_arm64-eng
-add_lunch_combo aosp_mips-eng
-add_lunch_combo aosp_mips64-eng
-add_lunch_combo aosp_x86-eng
-add_lunch_combo aosp_x86_64-eng
+#add_lunch_combo aosp_arm-eng
+#add_lunch_combo aosp_arm64-eng
+#add_lunch_combo aosp_mips-eng
+#add_lunch_combo aosp_mips64-eng
+#add_lunch_combo aosp_x86-eng
+#add_lunch_combo aosp_x86_64-eng
 
 function print_lunch_menu()
 {
@@ -508,7 +509,7 @@ function print_lunch_menu()
        echo "  (ohai, koush!)"
     fi
     echo
-    if [ "z${CM_DEVICES_ONLY}" != "z" ]; then
+    if [ "z${LIQUID_DEVICES_ONLY}" != "z" ]; then
        echo "Breakfast menu... pick a combo:"
     else
        echo "Lunch menu... pick a combo:"
@@ -522,7 +523,7 @@ function print_lunch_menu()
         i=$(($i+1))
     done | column
 
-    if [ "z${CM_DEVICES_ONLY}" != "z" ]; then
+    if [ "z${LIQUID_DEVICES_ONLY}" != "z" ]; then
        echo "... and don't forget the bacon!"
     fi
 
@@ -533,7 +534,7 @@ function brunch()
 {
     breakfast $*
     if [ $? -eq 0 ]; then
-        mka bacon
+        mka liquid
     else
         echo "No such item in brunch menu. Try 'breakfast'"
         return 1
@@ -545,10 +546,10 @@ function breakfast()
 {
     target=$1
     local variant=$2
-    CM_DEVICES_ONLY="true"
+    LIQUID_DEVICES_ONLY="true"
     unset LUNCH_MENU_CHOICES
     add_lunch_combo full-eng
-    for f in `/bin/ls vendor/cm/vendorsetup.sh 2> /dev/null`
+    for f in `/bin/ls vendor/liquid/vendorsetup.sh 2> /dev/null`
         do
             echo "including $f"
             . $f
@@ -564,11 +565,11 @@ function breakfast()
             # A buildtype was specified, assume a full device name
             lunch $target
         else
-            # This is probably just the CM model name
+            # This is probably just the LS model name
             if [ -z "$variant" ]; then
                 variant="userdebug"
             fi
-            lunch cm_$target-$variant
+            lunch liquid_$target-$variant
         fi
     fi
     return $?
@@ -618,7 +619,7 @@ function lunch()
     check_product $product
     if [ $? -ne 0 ]
     then
-        # if we can't find a product, try to grab it off the CM github
+        # if we can't find a product, try to grab it off the LS github
         T=$(gettop)
         pushd $T > /dev/null
         build/tools/roomservice.py $product
@@ -730,8 +731,8 @@ function tapas()
 function eat()
 {
     if [ "$OUT" ] ; then
-        MODVERSION=$(get_build_var CM_VERSION)
-        ZIPFILE=cm-$MODVERSION.zip
+        MODVERSION=`sed -n -e'/ro\.liquid\.version/s/.*=//p' $OUT/system/build.prop`
+        ZIPFILE=liquid-$MODVERSION.zip
         ZIPPATH=$OUT/$ZIPFILE
         if [ ! -f $ZIPPATH ] ; then
             echo "Nothing to eat"
@@ -746,7 +747,7 @@ function eat()
             done
             echo "Device Found.."
         fi
-    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
+    if (adb shell getprop ro.liquid.device | grep -q "$LIQUID_BUILD");
     then
         # if adbd isn't root we can't write to /cache/recovery/
         adb root
@@ -768,7 +769,7 @@ EOF
     fi
     return $?
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $LIQUID_BUILD, run away!"
     fi
 }
 
@@ -1738,7 +1739,7 @@ function installboot()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 > /dev/null
     adb wait-for-online remount
-    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
+    if (adb shell getprop ro.liquid.device | grep -q "$LIQUID_BUILD");
     then
         adb push $OUT/boot.img /cache/
         for i in $OUT/system/lib/modules/*;
