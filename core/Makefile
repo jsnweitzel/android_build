@@ -17,7 +17,6 @@ endif
 LOCAL_PATH := $(BUILD_SYSTEM)
 
 # Pick a reasonable string to use to identify files.
-ifneq ($(LIQUID_BUILD),)
 ifneq "" "$(filter eng.%,$(BUILD_NUMBER))"
   # BUILD_NUMBER has a timestamp in it, which means that
   # it will change every time.  Pick a stable value.
@@ -25,9 +24,7 @@ ifneq "" "$(filter eng.%,$(BUILD_NUMBER))"
 else
   FILE_NAME_TAG := $(BUILD_NUMBER)
 endif
-else
-  FILE_NAME_TAG := eng.$(USER)
-endif
+
 # -----------------------------------------------------------------
 # Define rules to copy PRODUCT_COPY_FILES defined by the product.
 # PRODUCT_COPY_FILES contains words like <source file>:<dest file>[:<owner>].
@@ -221,7 +218,7 @@ endif
 	$(hide) TARGET_BUILD_TYPE="$(TARGET_BUILD_VARIANT)" \
 			TARGET_BUILD_FLAVOR="$(TARGET_PRODUCT)-$(TARGET_BUILD_VARIANT)" \
 			TARGET_DEVICE="$(TARGET_VENDOR_DEVICE_NAME)" \
-			LIQUID_DEVICE="$(TARGET_DEVICE)" \
+			CM_DEVICE="$(TARGET_DEVICE)" \
 			PRODUCT_NAME="$(TARGET_VENDOR_PRODUCT_NAME)" \
 			PRODUCT_BRAND="$(PRODUCT_BRAND)" \
 			PRODUCT_DEFAULT_LOCALE="$(call get-default-product-locale,$(PRODUCT_LOCALES))" \
@@ -808,16 +805,6 @@ $(if $(2),$(hide) $(foreach kv,$(2),echo "$(kv)" >> $(1);))
 endef
 
 # -----------------------------------------------------------------
-# Utility executables
-
-INTERNAL_UTILITY_FILES := $(filter $(PRODUCT_OUT)/utilities/%, \
-	$(foreach module, $(ALL_MODULES), $(ALL_MODULES.$(module).INSTALLED)) \
-	$(ALL_DEFAULT_INSTALLED_MODULES))
-
-.PHONY: utilities
-utilities: $(INTERNAL_UTILITY_FILES)
-
-# -----------------------------------------------------------------
 # Recovery image
 
 ifdef INSTALLED_RECOVERYIMAGE_TARGET
@@ -884,6 +871,7 @@ recovery_fstab := $(strip $(wildcard $(TARGET_DEVICE_DIR)/recovery.fstab))
 endif
 # Named '.dat' so we don't attempt to use imgdiff for patching it.
 RECOVERY_RESOURCE_ZIP := $(TARGET_OUT)/etc/recovery-resource.dat
+RECOVERY_PATCH_INSTALL := $(TARGET_OUT)/bin/install-recovery.sh
 
 ifeq ($(recovery_resources_private),)
   $(info No private recovery resources for TARGET_DEVICE $(TARGET_DEVICE))
@@ -1009,6 +997,69 @@ endif
 
 endif # BOARD_CUSTOM_BOOTIMG_MK
 
+recovery_patch_path := $(call intermediates-dir-for,PACKAGING,recovery_patch)
+ota_temp_root := $(PRODUCT_OUT)/ota_temp
+$(RECOVERY_PATCH_INSTALL): PRIVATE_RECOVERY_API_VERSION := $(RECOVERY_API_VERSION)
+$(RECOVERY_PATCH_INSTALL): PRIVATE_RECOVERY_FSTAB_VERSION := $(RECOVERY_FSTAB_VERSION)
+$(RECOVERY_PATCH_INSTALL): $(INSTALLED_RECOVERYIMAGE_TARGET) \
+	$(RECOVERY_FROM_BOOT_PATCH) \
+	$(ALL_PREBUILT) \
+	$(ALL_COPIED_HEADERS) \
+	$(ALL_GENERATED_SOURCES) \
+	$(ALL_DEFAULT_INSTALLED_MODULES) \
+	$(PDK_FUSION_SYSIMG_FILES)
+	@echo "Installing recovery patch to system partition"
+	$(hide) mkdir -p $(ota_temp_root)
+	$(hide) mkdir -p $(ota_temp_root)/BOOT
+	$(hide) mkdir -p $(ota_temp_root)/RECOVERY
+	$(hide) mkdir -p $(ota_temp_root)/BOOTABLE_IMAGES
+	$(hide) mkdir -p $(ota_temp_root)/SYSTEM
+	$(hide) mkdir -p $(ota_temp_root)/SYSTEM/bin
+	$(hide) mkdir -p $(ota_temp_root)/SYSTEM/etc
+	$(hide) mkdir -p $(ota_temp_root)/META
+	$(hide) $(call package_files-copy-root, \
+		$(TARGET_RECOVERY_ROOT_OUT),$(ota_temp_root)/RECOVERY/RAMDISK)
+	$(hide) $(call package_files-copy-root, \
+		$(TARGET_ROOT_OUT),$(ota_temp_root)/BOOT/RAMDISK)
+	$(hide) $(call package_files-copy-root, \
+		$(TARGET_OUT)/etc,$(ota_temp_root)/SYSTEM/etc)
+	@echo "recovery_api_version=$(PRIVATE_RECOVERY_API_VERSION)" > $(ota_temp_root)/META/misc_info.txt
+	@echo "fstab_version=$(PRIVATE_RECOVERY_FSTAB_VERSION)" >> $(ota_temp_root)/META/misc_info.txt
+ifdef BOARD_FLASH_BLOCK_SIZE
+	@echo "blocksize=$(BOARD_FLASH_BLOCK_SIZE)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+ifdef BOARD_BOOTIMAGE_PARTITION_SIZE
+	@echo "boot_size=$(BOARD_BOOTIMAGE_PARTITION_SIZE)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+ifdef BOARD_RECOVERYIMAGE_PARTITION_SIZE
+	@echo "recovery_size=$(BOARD_RECOVERYIMAGE_PARTITION_SIZE)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+ifdef TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS
+	@# TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS can be empty to indicate that nothing but defaults should be used.
+	@echo "recovery_mount_options=$(TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS)" >> $(ota_temp_root)/META/misc_info.txt
+else
+	@echo "recovery_mount_options=$(DEFAULT_TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+	@echo "tool_extensions=$(tool_extensions)" >> $(ota_temp_root)/META/misc_info.txt
+	@echo "default_system_dev_certificate=$(DEFAULT_SYSTEM_DEV_CERTIFICATE)" >> $(ota_temp_root)/META/misc_info.txt
+ifdef PRODUCT_EXTRA_RECOVERY_KEYS
+	@echo "extra_recovery_keys=$(PRODUCT_EXTRA_RECOVERY_KEYS)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+	@echo 'mkbootimg_args=$(BOARD_MKBOOTIMG_ARGS)' >> $(ota_temp_root)/META/misc_info.txt
+	@echo "use_set_metadata=1" >> $(ota_temp_root)/META/misc_info.txt
+	@echo "multistage_support=1" >> $(ota_temp_root)/META/misc_info.txt
+	@echo "update_rename_support=1" >> $(ota_temp_root)/META/misc_info.txt
+ifneq ($(OEM_THUMBPRINT_PROPERTIES),)
+	# OTA scripts are only interested in fingerprint related properties
+	@echo "oem_fingerprint_properties=$(OEM_THUMBPRINT_PROPERTIES)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+	$(call generate-userimage-prop-dictionary, $(ota_temp_root)/META/misc_info.txt)
+	$(hide) cp -r $(PRODUCT_OUT)/boot.img $(ota_temp_root)/BOOTABLE_IMAGES/
+	$(hide) cp -r $(PRODUCT_OUT)/recovery.img $(ota_temp_root)/BOOTABLE_IMAGES/
+	$(hide) ./build/tools/releasetools/make_recovery_patch $(ota_temp_root) $(ota_temp_root)
+	$(hide) cp --remove-destination $(ota_temp_root)/SYSTEM/bin/install-recovery.sh $(TARGET_OUT)/bin/install-recovery.sh
+	$(hide) cp --remove-destination $(ota_temp_root)/SYSTEM/recovery-from-boot.p $(TARGET_OUT)/recovery-from-boot.p
+
 $(RECOVERY_RESOURCE_ZIP): $(INSTALLED_RECOVERYIMAGE_TARGET)
 	$(hide) mkdir -p $(dir $@)
 	$(hide) find $(TARGET_RECOVERY_ROOT_OUT)/res -type f | sort | zip -0qrj $@ -@
@@ -1021,7 +1072,6 @@ recoveryimage-nodeps:
 else
 RECOVERY_RESOURCE_ZIP :=
 endif
-
 .PHONY: recoveryimage
 recoveryimage: $(INSTALLED_RECOVERYIMAGE_TARGET) $(RECOVERY_RESOURCE_ZIP)
 
@@ -1052,16 +1102,11 @@ INTERNAL_SYSTEMIMAGE_FILES := $(filter $(TARGET_OUT)/%, \
     $(ALL_GENERATED_SOURCES) \
     $(ALL_DEFAULT_INSTALLED_MODULES) \
     $(PDK_FUSION_SYSIMG_FILES) \
-    $(RECOVERY_RESOURCE_ZIP))
+    $(RECOVERY_RESOURCE_ZIP) \
+    $(RECOVERY_PATCH_INSTALL))
 
-systemimage-squisher: $(INTERNAL_SYSTEMIMAGE_FILES)
-	@echo -e "Optimizing PNGs to Shrink ROM Size!"
-	$(hide) APKCERTS=$(APKCERTS_FILE) ./vendor/liquid/tools/squisher
 
-.PHONY: systemimage-squisher
-
-FULL_SYSTEMIMAGE_DEPS := $(INTERNAL_SYSTEMIMAGE_FILES) $(INTERNAL_USERIMAGES_DEPS) systemimage-squisher
-
+FULL_SYSTEMIMAGE_DEPS := $(INTERNAL_SYSTEMIMAGE_FILES) $(INTERNAL_USERIMAGES_DEPS)
 # -----------------------------------------------------------------
 # installed file list
 # Depending on anything that $(BUILT_SYSTEMIMAGE) depends on.
@@ -1504,12 +1549,14 @@ built_ota_tools := \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch,,,$(TARGET_PREFER_32_BIT))/applypatch \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch_static,,,$(TARGET_PREFER_32_BIT))/applypatch_static \
 	$(call intermediates-dir-for,EXECUTABLES,check_prereq,,,$(TARGET_PREFER_32_BIT))/check_prereq \
-	$(call intermediates-dir-for,EXECUTABLES,sqlite3,,,$(TARGET_PREFER_32_BIT))/sqlite3
+	$(call intermediates-dir-for,EXECUTABLES,sqlite3,,,$(TARGET_PREFER_32_BIT))/sqlite3 \
+
 ifeq ($(TARGET_ARCH),arm64)
-	built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater,,,32)/updater
+built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater,,,32)/updater
 else
-	built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater)/updater
+built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater)/updater
 endif
+
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_OTA_TOOLS := $(built_ota_tools)
 
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_RECOVERY_API_VERSION := $(RECOVERY_API_VERSION)
@@ -1562,6 +1609,13 @@ $(BUILT_TARGET_FILES_PACKAGE): \
 		$(TARGET_RECOVERY_ROOT_OUT),$(zip_root)/RECOVERY/RAMDISK)
 	@# OTA install helpers
 	$(hide) $(call package_files-copy-root, $(OUT)/install, $(zip_root)/INSTALL)
+# Just copy the already built boot/recovery images into the target-files dir
+# in order to avoid mismatched images between the out dir and what the ota
+# build system tries to rebuild.
+	$(hide) mkdir -p $(zip_root)/BOOTABLE_IMAGES
+	$(hide) $(ACP) $(INSTALLED_BOOTIMAGE_TARGET) $(zip_root)/BOOTABLE_IMAGES/
+	$(hide) $(ACP) $(INSTALLED_RECOVERYIMAGE_TARGET) $(zip_root)/BOOTABLE_IMAGES/
+
 ifdef INSTALLED_KERNEL_TARGET
 	$(hide) $(ACP) $(INSTALLED_KERNEL_TARGET) $(zip_root)/RECOVERY/kernel
 endif
@@ -1758,7 +1812,7 @@ endif
 ifeq ($(WITH_GMS),true)
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
 else
-ifneq ($(LIQUID_BUILD),)
+ifneq ($(CM_BUILD),)
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := true
 else
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
@@ -1785,7 +1839,6 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	$(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
 	   $(OTA_FROM_TARGET_SCRIPT) -v \
 	   --block \
-           $(if $(LIQUID_BUILD), --block) \
 	   -p $(HOST_OUT) \
 	   -k $(KEY_CERT_PAIR) \
 	   --backup=$(backuptool) \
@@ -1793,40 +1846,14 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	   $(if $(OEM_OTA_CONFIG), -o $(OEM_OTA_CONFIG)) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 
-LS_TARGET_PACKAGE := $(PRODUCT_OUT)/LS-$(LS_VERSION).zip
+CM_TARGET_PACKAGE := $(PRODUCT_OUT)/cm-$(CM_VERSION).zip
 
-.PHONY: otapackage liquid
+.PHONY: otapackage bacon
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
-liquid: check_liquid otapackage
-ifneq ($(LIQUID_BUILD),)
-	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(LIQUID_TARGET_PACKAGE)
-	$(hide) $(MD5SUM) $(LIQUID_TARGET_PACKAGE) > $(LIQUID_TARGET_PACKAGE).md5sum
-	@echo -e ${CL_BLU}""${CL_BLU}
-	@echo -e ${CL_BLU}"       __                        _______                      __  __ "${CL_BLU}
-	@echo -e ${CL_BLU}"      / /   __ ___  __  __ _ ___/ / ___/ ___ ____  ___  ___  / /_/ /_ "${CL_BLU}
-	@echo -e ${CL_BLU}"     / /   / / __ '/ / / / / __  /\__  \/ __' __ \/__ \/__ \/ __/ __ \ "${CL_BLU}
-	@echo -e ${CL_BLU}"    / /___/ / /_/ / /_/ / / /_/ /___/  / / / / / //_/ //_/ / /_/ / / / "${CL_BLU}
-	@echo -e ${CL_BLU}"   /_____/_/\__, /\__,_/_/\__,_//____ /_/ /_/ /_/\___/\___/\__/_/ /_/ "${CL_BLU}
-	@echo -e ${CL_BLU}"              /_/       Liquid-MarshMallow"${CL_BLU}
-	@echo -e ${CL_BLU}""${CL_BLU}
-	@echo -e ${CL_CYN}"Package Complete: $(LIQUID_TARGET_PACKAGE)"${CL_CYAN}${CL_RST}
- endif
-
-ifeq ($(LIQUID_CHANGELOG),true)
-# Generate changelog
-	$(hide) ./vendor/liquid/tools/changelog
-	$(hide) mv $(PRODUCT_OUT)/Changelog.txt $(PRODUCT_OUT)/$(LIQUID_VERSION)-$(TARGET_PRODUCT).txt
-endif
-
-check_liquid:
-ifneq ($(TARGET_CUSTOM_RELEASETOOL),)
-        $(error TARGET_CUSTOM_RELEASETOOL is deprecated)
- endif
-
 bacon: otapackage
-	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(LIQUID_TARGET_PACKAGE)
-	$(hide) $(MD5SUM) $(LIQUID_TARGET_PACKAGE) > $(LIQUID_TARGET_PACKAGE).md5sum
-	@echo -e ${CL_CYN}"Package Complete: $(LIQUID_TARGET_PACKAGE)"${CL_RST}
+	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(CM_TARGET_PACKAGE)
+	$(hide) $(MD5SUM) $(CM_TARGET_PACKAGE) > $(CM_TARGET_PACKAGE).md5sum
+	@echo -e ${CL_CYN}"Package Complete: $(CM_TARGET_PACKAGE)"${CL_RST}
 
 # -----------------------------------------------------------------
 # The factory package
