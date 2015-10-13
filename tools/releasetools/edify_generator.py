@@ -117,19 +117,12 @@ class EdifyGenerator(object):
 
   def AssertDevice(self, device):
     """Assert that the device identifier is the given string."""
-<<<<<<< HEAD
     cmd = ('assert(' +
            ' || '.join(['getprop("ro.product.device") == "%s" || getprop("ro.build.product") == "%s"'
                          % (i, i) for i in device.split(",")]) +
            ' || abort("This package is for device: %s; ' +
            'this device is " + getprop("ro.product.device") + ".");' +
            ');') % device
-=======
-    cmd = ('get_device_compatible("%s") == "OK" || '
-           'abort("This package is for \\"%s\\" devices; '
-           'this is a \\"" + getprop("ro.product.device") + "\\".");') % (
-               device, device)
->>>>>>> 818ea55540fa9389b6f00fd2b17e0792d032c81c
     self.script.append(cmd)
 
   def AssertSomeBootloader(self, *bootloaders):
@@ -156,11 +149,6 @@ class EdifyGenerator(object):
 
   def RunBackup(self, command):
     self.script.append(('run_program("/tmp/install/bin/backuptool.sh", "%s");' % command))
-
-  def FlashSuperSU(self):
-    self.script.append('package_extract_dir("supersu", "/tmp/supersu");')
-    self.script.append('run_program("/sbin/busybox", "unzip", "/tmp/supersu/supersu.zip", "META-INF/com/google/android/*", "-d", "/tmp/supersu");')
-    self.script.append('run_program("/sbin/busybox", "sh", "/tmp/supersu/META-INF/com/google/android/update-binary", "dummy", "1", "/tmp/supersu/supersu.zip");')
 
   def ValidateSignatures(self, command):
     self.script.append('package_extract_file("META-INF/org/cyanogenmod/releasekey", "/tmp/releasekey");')
