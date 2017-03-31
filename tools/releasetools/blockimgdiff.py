@@ -651,16 +651,10 @@ class BlockImageDiff(object):
       for index, xf in enumerate(self.transfers):
         if xf.style == "zero":
           tgt_size = xf.tgt_ranges.size() * self.tgt.blocksize
-          print("%10d %10d (%6.2f%%) %7s %s %s" % (
-              tgt_size, tgt_size, 100.0, xf.style, xf.tgt_name,
-              str(xf.tgt_ranges)))
 
         elif xf.style == "new":
           self.tgt.WriteRangeDataToFd(xf.tgt_ranges, new_f)
           tgt_size = xf.tgt_ranges.size() * self.tgt.blocksize
-          print("%10d %10d (%6.2f%%) %7s %s %s" % (
-              tgt_size, tgt_size, 100.0, xf.style,
-              xf.tgt_name, str(xf.tgt_ranges)))
 
         elif xf.style == "diff":
           # We can't compare src and tgt directly because they may have
@@ -675,13 +669,6 @@ class BlockImageDiff(object):
             # These are identical; we don't need to generate a patch,
             # just issue copy commands on the device.
             xf.style = "move"
-            tgt_size = xf.tgt_ranges.size() * self.tgt.blocksize
-            if xf.src_ranges != xf.tgt_ranges:
-              print("%10d %10d (%6.2f%%) %7s %s %s (from %s)" % (
-                  tgt_size, tgt_size, 100.0, xf.style,
-                  xf.tgt_name if xf.tgt_name == xf.src_name else (
-                      xf.tgt_name + " (from " + xf.src_name + ")"),
-                  str(xf.tgt_ranges), str(xf.src_ranges)))
           else:
             # For files in zip format (eg, APKs, JARs, etc.) we would
             # like to use imgdiff -z if possible (because it usually
