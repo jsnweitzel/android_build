@@ -2549,7 +2549,7 @@ endif
 ifeq ($(WITH_GMS),true)
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
 else
-ifneq ($(LINEAGE_BUILD),)
+ifneq ($(LIQUID_BUILD),)
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := true
 else
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
@@ -2569,6 +2569,25 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) \
 	   $(if $(OEM_OTA_CONFIG), -o $(OEM_OTA_CONFIG)) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 
+LIQUID_TARGET_PACKAGE := $(PRODUCT_OUT)/$(LIQUID_VERSION)-$(TARGET_PRODUCT).zip
+
+PHONY: otapackage liquid
+otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
+
+liquid: otapackage
+ifneq ($(LIQUID_BUILD),)
+	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(LIQUID_TARGET_PACKAGE)
+	$(hide) $(MD5SUM) $(LIQUID_TARGET_PACKAGE) > $(LIQUID_TARGET_PACKAGE).md5sum
+	@echo -e ${CL_BLU}""${CL_BLU}
+	@echo -e ${CL_BLU}"       __                        _______                      __  __ "${CL_BLU}
+	@echo -e ${CL_BLU}"      / /   __ ___  __  __ _ ___/ / ___/ ___ ____  ___  ___  / /_/ /_ "${CL_BLU}
+	@echo -e ${CL_BLU}"     / /   / / __ '/ / / / / __  /\__  \/ __' __ \/__ \/__ \/ __/ __ \ "${CL_BLU}
+	@echo -e ${CL_BLU}"    / /___/ / /_/ / /_/ / / /_/ /___/  / / / / / //_/ //_/ / /_/ / / / "${CL_BLU}
+	@echo -e ${CL_BLU}"   /_____/_/\__, /\__,_/_/\__,_//____ /_/ /_/ /_/\___/\___/\__/_/ /_/ "${CL_BLU}
+	@echo -e ${CL_BLU}"              /_/             Liquid-OREO"${CL_BLU}
+	@echo -e ${CL_BLU}""${CL_BLU}
+	@echo -e ${CL_CYN}"Package Complete: $(LIQUID_TARGET_PACKAGE)"${CL_CYAN}${CL_RST}
+endif
 .PHONY: otapackage
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
 
